@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AppBar,
   Card,
@@ -7,11 +7,21 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+} from "@mui/material";
 import { makeStyles } from "tss-react/mui";
 import { useAppDispatch } from "../redux/hooks";
 import { useSelector } from "react-redux";
 import { RootState } from "../redux/store";
-import { fetchSpectrumStatus } from "../features/spectrumStatus/spectrumStatusSlice";
+import {
+  fetchSpectrumStatus,
+} from "../features/spectrumStatus/spectrumStatusSlice";
 import TemperatureGaugeChart from "./TemperatureGaugeChart"; // Import the TemperatureGaugeChart component
 import VelocityGaugeChart from "./VelocityGaugeChart";
 import AltitudeGaugeChart from "./AltitudeGaugeChart";
@@ -65,9 +75,13 @@ const useStyles = makeStyles()({
 
 const SpectrumStatusCards: React.FC = () => {
   const dispatch = useAppDispatch();
+
   const spectrumStatus = useSelector(
     (state: RootState) => state.spectrumStatus
   );
+  const [openDialog, setOpenDialog] = useState(false);
+  const data = spectrumStatus.data;
+
   const { classes } = useStyles();
 
   const getRandomColor = (): string => {
@@ -86,11 +100,62 @@ const SpectrumStatusCards: React.FC = () => {
   };
 
   useEffect(() => {
-    dispatch(fetchSpectrumStatus());
+    const socket = new WebSocket(
+      "wss://webfrontendassignment-isaraerospace.azurewebsites.net/api/SpectrumWS"
+    );
+
+    socket.onopen = () => {
+      console.log("WebSocket connection opened");
+    };
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      dispatch(fetchSpectrumStatus.fulfilled(data, "", undefined));
+      if (data.IsActionRequired) {
+        setOpenDialog(true);
+      }
+    };
+
+    socket.onerror = (event) => {
+      console.error("WebSocket error:", event);
+    };
+
+    socket.onclose = (event) => {
+      console.log("WebSocket connection closed:", event);
+    };
+
+    // Cleanup function
+    return () => {
+      socket.close();
+    };
   }, [dispatch]);
 
-  const data = spectrumStatus.data;
-  console.log(data);
+  const handleDialogClose = () => {
+    setOpenDialog(false);
+  };
+
+  const handleAction = () => {
+    fetch(
+      "https://webfrontendassignment-isaraerospace.azurewebsites.net/api/ActOnSpectrum",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to take action");
+        }
+      })
+      .catch((error) => {
+        console.error("Error taking action:", error);
+      })
+      .finally(() => {
+        setOpenDialog(false);
+      });
+  };
 
   if (spectrumStatus.loading === "loading") {
     return <div>Loading...</div>;
@@ -119,7 +184,7 @@ const SpectrumStatusCards: React.FC = () => {
                 style={{ maxHeight: "88px" }}
               >
                 <CardContent>
-                  {key === "statusMessage" && (
+                  {key === "StatusMessage" && (
                     <>
                       <Typography className={classes.title}>
                         Message:{" "}
@@ -127,7 +192,7 @@ const SpectrumStatusCards: React.FC = () => {
                       <Typography>{value}</Typography>
                     </>
                   )}
-                  {key === "isAscending" && (
+                  {key === "IsAscending" && (
                     <>
                       <Typography className={classes.title}>
                         Current Status:{" "}
@@ -137,7 +202,7 @@ const SpectrumStatusCards: React.FC = () => {
                       </Typography>
                     </>
                   )}
-                  {key === "isActionRequired" && (
+                  {key === "IsActionRequired" && (
                     <>
                       <Typography className={classes.title}>
                         Action Status:
@@ -183,15 +248,15 @@ const SpectrumStatusCards: React.FC = () => {
             index > 2 ? null : (
               <Card key={key} className={classes.card}>
                 <CardContent>
-                  {key === "temperature" && (
+                  {key === "Temperature" && (
                     <TemperatureGaugeChart
                       temperature={Math.round(value as number)}
                     />
                   )}
-                  {key === "velocity" && (
+                  {key === "Velocity" && (
                     <VelocityGaugeChart velocity={value as number} />
                   )}
-                  {key === "altitude" && (
+                  {key === "Altitude" && (
                     <AltitudeGaugeChart altitude={value as number} />
                   )}
                   <Typography
@@ -205,6 +270,24 @@ const SpectrumStatusCards: React.FC = () => {
             )
           )}
       </div>
+
+      {/* Dialog for action required */}
+      <Dialog open={openDialog} onClose={handleDialogClose}>
+        <DialogTitle>Action Required</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Action is required. Please take the necessary action.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDialogClose} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleAction} color="primary">
+            Take Action
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };
